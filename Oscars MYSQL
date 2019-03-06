@@ -1,0 +1,122 @@
+/*Academy Awards best predictor
+
+I am writing this little program to answer the question: 
+Is there a correlation between a movie winning in a different category to picking up the best picture award?
+This came about because my mother always says that the winner of the best director category is often the winner of the best picture award. 
+So I decided to crunch the numbers. 
+Mark Shapero Mar 2018*/
+
+DROP TABLE awards;
+
+CREATE TABLE awards(
+ceremony INT, -- This is the ceremony number. First ceremony in 1928
+award TEXT, -- This is the award categroy,
+win VARCHAR(1), -- 1 for win, '' for not win
+name TEXT, -- name of person nominated or production company
+film TEXT -- name of the film
+);
+
+-- This data file was downloaded from Kaggle
+LOAD DATA INFILE '/private/tmp/oscars.csv'
+INTO TABLE awards
+FIELDS 
+    TERMINATED BY ','
+    ESCAPED BY ''
+LINES TERMINATED BY '\r\n'
+IGNORE 1 LINES
+(@dummy, ceremony,award,win,name,film,@dummy);
+-- the csv file has a year as the first column,which I ignored 
+
+-- Unfortunately, the dataset had errors and needed to be cleaned up
+-- I removed the awards for music, dance and any special awards.
+DELETE FROM awards
+WHERE award LIKE 'Music%' OR award LIKE '%Special%' OR award LIKE 'Dance%';
+
+/*When I loaded the csv file, I switched commas in movie names to ':-:' 
+so they would not interfere with loading. 
+Here I switch them back*/
+UPDATE awards
+    SET name = REPLACE(name, ':-:',',');
+UPDATE awards
+    SET film = REPLACE(film, ':-:',','); 
+-- M*A*S*H was loaded incorrectly
+UPDATE awards
+    SET film = REPLACE(film,'MA*S*H','M*A*S*H');
+UPDATE awards
+    SET name = REPLACE(name,'MA*S*H','M*A*S*H');
+UPDATE awards
+    SET film = TRIM(film);
+UPDATE awards
+    SET name = TRIM(name);
+UPDATE awards
+    SET name = REPLACE(name,'"Maggie Simpson in ""The Longest Daycare"" "','Maggie Simpson in The Longest Daycare"');
+    
+/* In the data set, some entries had the film name and the person nominated switched
+to figure out the which entries were switched, I compared them to a list of films
+that have been nominated. This list was generated from a python script I wrote to get them (movielist.py)
+*/
+CREATE TABLE movies(
+film TEXT);
+DROP TABLE movies;
+LOAD DATA INFILE '//private/tmp/movielist.txt'
+INTO TABLE movies
+LINES TERMINATED BY '\n';
+
+
+SELECT * FROM awards
+WHERE awards.film NOT IN (SELECT film FROM movies) AND awards.film != '';
+
+-- This switches the name and film entries
+UPDATE awards 
+   SET name=(@temp:=name),name = film, film = @temp
+    WHERE awards.film NOT IN (SELECT film FROM movies) AND awards.film != '';
+
+
+-- This query counts the number of times the best director award and best picture go to the same movie
+SELECT COUNT(*) FROM (
+SELECT film FROM awards
+WHERE film IN (
+            Select film FROM awards
+            WHERE award LIKE '%Directing%' AND win =1
+            )
+AND
+awards.film IN (
+            SELECT film FROM awards
+            WHERE (award LIKE '%Outstanding%' OR award LIKE '%Best%') AND win = 1
+            )
+GROUP BY film) AS films;
+-- To compare with writing and winning the best picture
+SELECT COUNT(*) FROM (
+SELECT film FROM awards
+WHERE film IN (
+            Select film FROM awards
+            WHERE award LIKE '%Writing%' AND win =1
+            )
+AND
+awards.film IN (
+            SELECT film FROM awards
+            WHERE (award LIKE '%Outstanding%' OR award LIKE '%Best%') AND win = 1
+            )
+GROUP BY film) AS films;
+-- To compare with any acting award and winning the best picture
+SELECT COUNT(*) FROM (
+SELECT film FROM awards
+WHERE film IN (
+            Select film FROM awards
+            WHERE (award LIKE 'Actress%' OR award LIKE 'Actor%') AND win =1
+            )
+AND
+awards.film IN (
+            SELECT film FROM awards
+            WHERE (award LIKE '%Outstanding%' OR award LIKE '%Best%') AND win = 1
+            )
+GROUP BY film) AS films;
+
+/* Final Thoughts
+There were 88 years processed. 
+The same film won best directing and best picture 65 times or 74%
+The same film won in a writing category and best picture 60 times or 68%
+There was far less correlation between acting awards and best picture.
+
+This is still a work in progress */
+          
